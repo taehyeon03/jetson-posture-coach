@@ -1,0 +1,26 @@
+# Local Python environment
+.venv/
+__pycache__/
+*.py[cod]
+
+# Device configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Private captures and device outputs
+data/
+captures/
+recordings/
+logs/
+models/
+*.log
+
+# Temporary presentation review artifacts
+contents_review.png
+slide_review.jpg
+~$*
+.~lock.*
+.DS_Store
