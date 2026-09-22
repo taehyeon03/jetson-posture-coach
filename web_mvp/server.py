@@ -24,7 +24,15 @@ import tensorrt as trt
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.camera import CsiCamera
-from src.posture import Baseline, SustainedAlert, classify, diagnose_pose, extract_metrics
+from src.posture import (
+    Baseline,
+    KeypointSmoother,
+    SteadyMetrics,
+    SustainedAlert,
+    classify,
+    diagnose_pose,
+    extract_metrics,
+)
 
 MISSING_LABELS_KO = {"nose": "코", "ear": "귀", "shoulder": "어깨", "hip": "엉덩이"}
 
@@ -276,6 +284,8 @@ def worker(state, args):
         camera = CsiCamera(fps=args.camera_fps)
         baseline = Baseline.load(args.baseline) if Path(args.baseline).is_file() else None
         alert = SustainedAlert(args.hold_seconds)
+        smoother = KeypointSmoother()
+        steady = SteadyMetrics()
         calibration_phase = "idle"
         calibration_started = 0.0
         calibration_samples = []
@@ -307,7 +317,18 @@ def worker(state, args):
                 p["name"]: (p["x"] * frame_w, p["y"] * frame_h, p["score"])
                 for p in points
             }
+            point_map = smoother.smooth(point_map, started)
+            # Send the smoothed positions to the browser too, so the joint
+            # overlay itself stops twitching frame to frame.
+            points = [
+                {"name": name, "x": x / frame_w, "y": y / frame_h, "score": score}
+                for name, (x, y, score) in point_map.items()
+            ]
             metrics = extract_metrics(point_map, args.confidence)
+            # Bridges a keypoint (usually the hip) dropping below threshold
+            # for a frame or two, instead of the display flickering to
+            # NO_POSE on every transient occlusion.
+            steady_metrics = steady.update(metrics, started)
 
             now = time.monotonic()
             measured.append(now - previous)
@@ -361,7 +382,7 @@ def worker(state, args):
 
             elif calibration_phase == "idle" and baseline is not None:
                 posture_state, head_delta, torso_delta = classify(
-                    metrics,
+                    steady_metrics,
                     baseline,
                     args.head_threshold,
                     args.torso_threshold,
@@ -398,8 +419,8 @@ def worker(state, args):
                 "calibration_remaining": round(calibration_remaining, 1),
                 "head_delta": None if head_delta is None else round(head_delta, 3),
                 "torso_delta": None if torso_delta is None else round(torso_delta, 3),
-                "confidence": None if metrics is None else round(metrics.confidence, 3),
-                "side": None if metrics is None else metrics.side,
+                "confidence": None if steady_metrics is None else round(steady_metrics.confidence, 3),
+                "side": None if steady_metrics is None else steady_metrics.side,
                 "bad_for": round(bad_for, 1),
                 "alert_count": state.alert_count,
                 "events": list(state.events),

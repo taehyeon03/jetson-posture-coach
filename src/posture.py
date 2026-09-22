@@ -81,6 +81,97 @@ def diagnose_pose(points, minimum_confidence=0.25):
     return {"side": best_side, "missing": missing}
 
 
+class OneEuroFilter(object):
+    """Adaptive low-pass filter for a noisy real-time scalar stream.
+
+    Standard technique for stabilizing camera-based pose landmarks (used by
+    MediaPipe's own landmark smoothing, among others): heavier smoothing
+    while the signal is nearly still, lighter smoothing during fast motion,
+    so posture no longer twitches between good/bad on raw single-frame
+    keypoint jitter.
+    """
+
+    def __init__(self, min_cutoff=1.0, beta=0.3, d_cutoff=1.0):
+        self.min_cutoff = float(min_cutoff)
+        self.beta = float(beta)
+        self.d_cutoff = float(d_cutoff)
+        self.x_previous = None
+        self.dx_previous = 0.0
+        self.t_previous = None
+
+    @staticmethod
+    def _alpha(cutoff, dt):
+        tau = 1.0 / (2.0 * math.pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
+
+    def __call__(self, x, t):
+        if self.t_previous is None:
+            self.x_previous, self.t_previous = x, t
+            return x
+        dt = max(1e-6, t - self.t_previous)
+        a_d = self._alpha(self.d_cutoff, dt)
+        dx = (x - self.x_previous) / dt
+        dx_hat = a_d * dx + (1.0 - a_d) * self.dx_previous
+        cutoff = self.min_cutoff + self.beta * abs(dx_hat)
+        a = self._alpha(cutoff, dt)
+        x_hat = a * x + (1.0 - a) * self.x_previous
+        self.x_previous, self.dx_previous, self.t_previous = x_hat, dx_hat, t
+        return x_hat
+
+
+class KeypointSmoother(object):
+    """Runs a OneEuroFilter per axis per named keypoint over successive
+    ``model.infer()`` outputs. Confidence scores pass through unsmoothed;
+    only the (x, y) position is stabilized."""
+
+    def __init__(self, min_cutoff=1.0, beta=0.3, d_cutoff=1.0):
+        self.min_cutoff = min_cutoff
+        self.beta = beta
+        self.d_cutoff = d_cutoff
+        self._filters = {}
+
+    def smooth(self, points, now=None):
+        now = time.time() if now is None else float(now)
+        smoothed = {}
+        for name, point in points.items():
+            if point is None:
+                smoothed[name] = point
+                continue
+            x, y, score = point
+            if name not in self._filters:
+                self._filters[name] = (
+                    OneEuroFilter(self.min_cutoff, self.beta, self.d_cutoff),
+                    OneEuroFilter(self.min_cutoff, self.beta, self.d_cutoff),
+                )
+            filter_x, filter_y = self._filters[name]
+            smoothed[name] = (filter_x(x, now), filter_y(y, now), score)
+        return smoothed
+
+
+class SteadyMetrics(object):
+    """Bridges brief single-frame confidence drops (e.g. the hip flickering
+    behind a chair edge) so the classifier does not snap to NO_POSE on every
+    frame a keypoint dips under threshold. Only ever holds over a real prior
+    reading, and only for ``grace_seconds``, so a genuine "person left" still
+    reaches NO_POSE quickly.
+    """
+
+    def __init__(self, grace_seconds=0.6):
+        self.grace_seconds = float(grace_seconds)
+        self._last = None
+        self._last_time = None
+
+    def update(self, metrics, now=None):
+        now = time.time() if now is None else float(now)
+        if metrics is not None:
+            self._last = metrics
+            self._last_time = now
+            return metrics
+        if self._last is not None and now - self._last_time <= self.grace_seconds:
+            return self._last
+        return None
+
+
 class Baseline(object):
     VERSION = 1
 

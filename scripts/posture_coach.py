@@ -17,7 +17,7 @@ import cv2
 
 from src.camera import CsiCamera
 from src.pose import MoveNet, draw_pose
-from src.posture import Baseline, SustainedAlert, classify, extract_metrics
+from src.posture import Baseline, KeypointSmoother, SteadyMetrics, SustainedAlert, classify, extract_metrics
 
 
 COLORS = {
@@ -96,6 +96,8 @@ def main():
     needs_calibration = args.calibrate or not os.path.isfile(args.baseline)
     baseline = None if needs_calibration else Baseline.load(args.baseline)
     alert = SustainedAlert(args.hold_seconds)
+    smoother = KeypointSmoother()
+    steady = SteadyMetrics()
     interval = 1.0 / args.process_fps
     last_inference = 0.0
     last_report = 0.0
@@ -125,7 +127,7 @@ def main():
                     continue
                 last_inference = now
                 processed += 1
-                points = model.infer(frame)
+                points = smoother.smooth(model.infer(frame), now)
                 metrics = extract_metrics(points, args.confidence)
                 draw_pose(frame, points, args.confidence)
 
@@ -161,15 +163,16 @@ def main():
                 else:
                     if monitoring_start is None:
                         monitoring_start = now
+                    steady_metrics = steady.update(metrics, now)
                     state, head_delta, torso_delta = classify(
-                        metrics,
+                        steady_metrics,
                         baseline,
                         args.head_threshold,
                         args.torso_threshold,
                     )
                     last_state = state
                     fired, bad_seconds = alert.update(state, now)
-                    overlay(frame, state, metrics, head_delta, torso_delta)
+                    overlay(frame, state, steady_metrics, head_delta, torso_delta)
                     if fired:
                         print("\aALERT: %s continued for %.1fs" % (state, bad_seconds))
                         append_event(args.events, state, head_delta, torso_delta)
