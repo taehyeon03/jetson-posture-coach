@@ -52,13 +52,19 @@ def missing_message(point_map, confidence, prefix="안 보여요"):
 KEYPOINTS = json.loads(
     (Path(__file__).resolve().parent.parent / "models/Pose-ResNet18-Body/human_pose.json").read_text()
 )["keypoints"]
-# Once a person is locked, inference runs on a crop around their last known
-# bounding box instead of the full frame. This stops the single-person
-# heatmap model from snapping to a different person when several are visible.
-ROI_MARGIN_RATIO = 0.6
-ROI_MIN_VALID_POINTS = 4
-ROI_MIN_SIZE = 40
-ROI_LOST_RESET_FRAMES = 10
+# The heatmap model has no notion of "a person" -- each joint channel is an
+# independent argmax over the WHOLE frame, so with several people in view it
+# can (and does) stitch one person's face onto another person's body. A face
+# detector runs first to find every individual face, one is picked to track,
+# and only the crop around THAT face is ever handed to the pose model, so it
+# physically cannot see anyone else's joints.
+FACE_CASCADE_PATH = Path(__file__).resolve().parent / "assets" / "haarcascade_profileface.xml"
+FACE_DOWNSCALE = 0.4
+FACE_MIN_SIZE = 24
+FACE_LOST_RESET_FRAMES = 10
+BODY_SIDE_MARGIN_RATIO = 3.0
+BODY_TOP_MARGIN_RATIO = 1.5
+BODY_BOTTOM_MARGIN_RATIO = 11.0
 
 EDGES = [
     ("left_ear", "left_eye"), ("left_eye", "nose"),
@@ -226,22 +232,62 @@ def infer(frame, context, device, arrays, pointers, input_i, outputs, heatmap_i)
     return points
 
 
-def bbox_from_points(points, frame_w, frame_h, confidence, margin_ratio=ROI_MARGIN_RATIO):
-    """Bounding box (in full-frame pixels) around the locked person's joints."""
-    valid = [(p["x"] * frame_w, p["y"] * frame_h) for p in points if p["score"] >= confidence]
-    if len(valid) < ROI_MIN_VALID_POINTS:
+def load_face_cascade():
+    cascade = cv2.CascadeClassifier(str(FACE_CASCADE_PATH))
+    if cascade.empty():
+        raise RuntimeError("cannot load face cascade: {}".format(FACE_CASCADE_PATH))
+    return cascade
+
+
+def detect_faces(frame, cascade, downscale=FACE_DOWNSCALE, min_size=FACE_MIN_SIZE):
+    """Every distinct face in ``frame``, as full-frame pixel boxes.
+
+    The profile cascade only recognizes one facing direction, so it also
+    runs on a horizontally flipped copy to catch someone turned the other
+    way (this side-view app never expects a frontal face).
+    """
+    small = cv2.resize(frame, None, fx=downscale, fy=downscale, interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    size = (min_size, min_size)
+    boxes = [
+        (x / downscale, y / downscale, w / downscale, h / downscale)
+        for (x, y, w, h) in cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=4, minSize=size)
+    ]
+    flipped = cv2.flip(gray, 1)
+    small_w = gray.shape[1]
+    for (x, y, w, h) in cascade.detectMultiScale(flipped, scaleFactor=1.2, minNeighbors=4, minSize=size):
+        boxes.append(((small_w - x - w) / downscale, y / downscale, w / downscale, h / downscale))
+    return boxes
+
+
+def choose_face(boxes, anchor_center):
+    """Pick the ONE face to track this frame: whichever is closest to where
+    the locked person's face was last seen, or the largest (nearest-camera)
+    face if nobody is locked yet."""
+    if not boxes:
         return None
-    xs = [v[0] for v in valid]
-    ys = [v[1] for v in valid]
-    x0, x1 = min(xs), max(xs)
-    y0, y1 = min(ys), max(ys)
-    margin_x = (x1 - x0) * margin_ratio
-    margin_y = (y1 - y0) * margin_ratio
-    x0 = max(0, int(x0 - margin_x))
-    y0 = max(0, int(y0 - margin_y))
-    x1 = min(frame_w, int(x1 + margin_x))
-    y1 = min(frame_h, int(y1 + margin_y))
-    if x1 - x0 < ROI_MIN_SIZE or y1 - y0 < ROI_MIN_SIZE:
+    if anchor_center is None:
+        return max(boxes, key=lambda box: box[2] * box[3])
+    ax, ay = anchor_center
+
+    def distance(box):
+        cx, cy = box[0] + box[2] / 2.0, box[1] + box[3] / 2.0
+        return (cx - ax) ** 2 + (cy - ay) ** 2
+
+    return min(boxes, key=distance)
+
+
+def body_roi_from_face(face_box, frame_w, frame_h):
+    """Expand one face box into a crop covering that sitting person's
+    upper body -- generous enough for natural head/torso movement, sized
+    off the face itself so it never reaches a neighboring desk."""
+    x, y, w, h = face_box
+    cx = x + w / 2.0
+    x0 = max(0, int(cx - BODY_SIDE_MARGIN_RATIO * w))
+    x1 = min(frame_w, int(cx + BODY_SIDE_MARGIN_RATIO * w))
+    y0 = max(0, int(y - BODY_TOP_MARGIN_RATIO * h))
+    y1 = min(frame_h, int(y + BODY_BOTTOM_MARGIN_RATIO * h))
+    if x1 - x0 < 20 or y1 - y0 < 20:
         return None
     return (x0, y0, x1, y1)
 
@@ -288,6 +334,7 @@ def worker(state, args):
         smoother = KeypointSmoother()
         steady = SteadyMetrics()
         person_lock = PersonLock()
+        face_cascade = load_face_cascade()
         calibration_phase = "idle"
         calibration_started = 0.0
         calibration_samples = []
@@ -296,7 +343,8 @@ def worker(state, args):
         previous = time.monotonic()
         measured = []
         locked_bbox = None
-        lost_streak = 0
+        face_anchor_center = None
+        face_lost_streak = 0
 
         camera.__enter__()
         camera_open = True
@@ -305,26 +353,31 @@ def worker(state, args):
             if frame is None:
                 continue
             started = time.monotonic()
-            points = infer_tracked(frame, locked_bbox, context, device, arrays, pointers, input_i, outputs, heatmap_i)
             frame_h, frame_w = frame.shape[:2]
+
+            # Find every face, then keep tracking whichever one is closest
+            # to the last locked position (or the biggest/nearest face if
+            # nobody is locked yet), and crop to just that person's body.
+            target_face = choose_face(detect_faces(frame, face_cascade), face_anchor_center)
+            if target_face is not None:
+                face_anchor_center = (target_face[0] + target_face[2] / 2.0, target_face[1] + target_face[3] / 2.0)
+                face_lost_streak = 0
+                locked_bbox = body_roi_from_face(target_face, frame_w, frame_h)
+            else:
+                face_lost_streak += 1
+                if face_lost_streak >= FACE_LOST_RESET_FRAMES:
+                    face_anchor_center = None
+                    locked_bbox = None
+
+            points = infer_tracked(frame, locked_bbox, context, device, arrays, pointers, input_i, outputs, heatmap_i)
             point_map_raw = {
                 p["name"]: (p["x"] * frame_w, p["y"] * frame_h, p["score"])
                 for p in points
             }
-            # Gate on eye position before trusting this frame's body at all:
-            # a bystander's face landing in the crop must not relock the ROI
-            # or feed the smoother/metrics with someone else's posture.
-            is_locked_person = person_lock.update(point_map_raw, args.confidence)
-
-            if is_locked_person:
-                new_bbox = bbox_from_points(points, frame_w, frame_h, args.confidence)
-                if new_bbox is not None:
-                    locked_bbox = new_bbox
-                    lost_streak = 0
-                else:
-                    lost_streak += 1
-                    if lost_streak >= ROI_LOST_RESET_FRAMES:
-                        locked_bbox = None
+            # Belt-and-suspenders sanity check even inside the face-locked
+            # crop: a joint set that still doesn't line up with the locked
+            # face is dropped rather than fed to the classifier.
+            if person_lock.update(point_map_raw, args.confidence):
                 point_map = smoother.smooth(point_map_raw, started)
                 metrics = extract_metrics(point_map, args.confidence)
                 # Send the smoothed positions to the browser too, so the
@@ -334,11 +387,6 @@ def worker(state, args):
                     for name, (x, y, score) in point_map.items()
                 ]
             else:
-                # Wrong person (or nobody verifiable) in view this frame:
-                # drop the crop lock so the next frame searches the full
-                # frame again, and don't let this frame's points count.
-                locked_bbox = None
-                lost_streak = 0
                 point_map = point_map_raw
                 metrics = None
 
