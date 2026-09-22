@@ -50,6 +50,22 @@ class PostureTests(unittest.TestCase):
         points["left_hip"] = (100, 200, 0.1)
         self.assertIsNone(extract_metrics(points))
 
+    def test_rejects_a_face_stitched_onto_a_distant_stranger(self):
+        # Same shape as the live capture that exposed the bug: a confident
+        # ear far off to the side, near someone else's head, while the
+        # shoulder/hip belong to the actual person in frame.
+        points = pose(ear_x=400, hip_x=100)
+        self.assertIsNone(extract_metrics(points))
+
+    def test_falls_back_to_the_other_side_when_one_is_implausible(self):
+        points = pose(ear_x=400)
+        points["right_ear"] = (108, 62, 0.9)
+        points["right_shoulder"] = (100, 100, 0.9)
+        points["right_hip"] = (100, 200, 0.9)
+        metrics = extract_metrics(points)
+        self.assertIsNotNone(metrics)
+        self.assertEqual(metrics.side, "right")
+
     def test_alert_fires_once_after_hold_time(self):
         alert = SustainedAlert(3.0)
         self.assertEqual(alert.update("HEAD_FORWARD", 10.0)[0], False)

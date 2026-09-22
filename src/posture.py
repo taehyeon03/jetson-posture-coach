@@ -21,6 +21,19 @@ def _valid(point, minimum):
     return point is not None and point[2] >= minimum
 
 
+# A model with no notion of "a person" (every joint is its own whole-frame
+# best guess) can pass every confidence check while stitching one person's
+# ear onto another person's shoulder. These caps say how far the ear and
+# nose are allowed to sit from the candidate's own shoulder, in units of
+# that same candidate's torso (shoulder-to-hip) length -- a scale-free
+# stand-in for "could this plausibly be one seated body". Generous on
+# purpose: real head tilt and camera angle already push these ratios
+# around; they only need to catch the multi-person case, which lands far
+# outside normal human proportions.
+MAX_EAR_SHOULDER_RATIO = 1.2
+MAX_NOSE_EAR_RATIO = 0.8
+
+
 def extract_metrics(points, minimum_confidence=0.25):
     """Build scale-independent metrics from the most visible body side.
 
@@ -43,18 +56,27 @@ def extract_metrics(points, minimum_confidence=0.25):
         candidates.append((confidence, side, ear, shoulder, hip))
     if not candidates:
         return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
 
-    confidence, side, ear, shoulder, hip = max(candidates, key=lambda item: item[0])
-    torso_x = shoulder[0] - hip[0]
-    torso_y = shoulder[1] - hip[1]
-    torso_length = math.sqrt(torso_x * torso_x + torso_y * torso_y)
-    if torso_length < 20.0 or hip[1] <= shoulder[1]:
-        return None
+    for confidence, side, ear, shoulder, hip in candidates:
+        torso_x = shoulder[0] - hip[0]
+        torso_y = shoulder[1] - hip[1]
+        torso_length = math.sqrt(torso_x * torso_x + torso_y * torso_y)
+        if torso_length < 20.0 or hip[1] <= shoulder[1]:
+            continue
 
-    facing = 1.0 if nose[0] >= ear[0] else -1.0
-    head_forward = facing * (ear[0] - shoulder[0]) / torso_length
-    torso_forward = facing * (shoulder[0] - hip[0]) / torso_length
-    return PostureMetrics(side, head_forward, torso_forward, confidence)
+        ear_shoulder = math.hypot(ear[0] - shoulder[0], ear[1] - shoulder[1])
+        nose_ear = math.hypot(nose[0] - ear[0], nose[1] - ear[1])
+        if ear_shoulder > MAX_EAR_SHOULDER_RATIO * torso_length:
+            continue
+        if nose_ear > MAX_NOSE_EAR_RATIO * torso_length:
+            continue
+
+        facing = 1.0 if nose[0] >= ear[0] else -1.0
+        head_forward = facing * (ear[0] - shoulder[0]) / torso_length
+        torso_forward = facing * (shoulder[0] - hip[0]) / torso_length
+        return PostureMetrics(side, head_forward, torso_forward, confidence)
+    return None
 
 
 def diagnose_pose(points, minimum_confidence=0.25):
