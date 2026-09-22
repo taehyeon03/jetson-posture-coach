@@ -2,7 +2,7 @@
 
 Jetson Nano 4GB와 카메라를 활용하는 **개인화 자세 감지·음성 피드백 IoT 시스템** 연구 프로젝트입니다.
 
-> 현재 단계: 연구 기획 및 문헌 조사. 이 저장소에는 발표 자료와 자료 생성 스크립트가 있으며, 실제 장치 제어·AI 학습·추론 프로그램은 아직 구현하지 않았습니다. RAM·FPS·정확도·피드백 효과는 실측 전입니다.
+> 현재 단계: 카메라 동작과 MoveNet 기반 자세 추론 최소 기능을 구현했습니다. 자세 판정은 개인별 바른 자세를 먼저 보정한 뒤 고개 전진·상체 숙임의 지속 시간을 판정합니다. GPIO·음성·통신 통합과 정확도·피드백 효과 평가는 아직 진행 전입니다.
 
 ## 연구 목표
 
@@ -51,7 +51,8 @@ Jetson Nano와 Jetson Orin Nano는 다른 장치입니다. 본 프로젝트는 �
 - [x] 연구 주제, 논문 3편, 배경·시장 조사
 - [x] 연구 초록과 17쪽 발표 자료
 - [ ] 보드·카메라·오디오 동작 확인 (카메라 확인 완료, 오디오 남음 — [기록](docs/hardware_notes.md))
-- [ ] 카메라 → 자세 분류 → 음성 안내 최소 기능 구현
+- [x] 카메라 → 자세 추정 → 개인 기준 자세 분류 최소 기능 구현
+- [ ] 자세 분류 → 음성 안내 최소 기능 구현
 - [ ] 동의 기반 데이터 수집·라벨링 및 외부 PC 학습
 - [ ] 개인 기준·신뢰도·시간 조건 비교
 - [ ] 센서·LED·버튼 통합
@@ -67,6 +68,42 @@ Jetson Nano와 Jetson Orin Nano는 다른 장치입니다. 본 프로젝트는 �
 - 초기 목표는 5–10 FPS, 최대 RAM 3.5GB 이하, 30분 이상 연속 실행입니다. **달성 결과가 아닌 설계 목표**입니다.
 - 알림 유무에 따른 자세 복귀율, 이탈 지속 시간, 알림 피로도를 비교합니다.
 - 귀–어깨 각도는 임상적 craniovertebral angle(CVA)와 구분합니다.
+
+## 자세 판정 실행
+
+Jetson Nano에서 최초 한 번 런타임과 MoveNet Lightning 모델을 설치합니다. 설치 스크립트는 Nano의 Python 3.6과 Cortex-A57에 맞는 TensorFlow Lite 런타임을 사용하며, 보드 기본 NumPy를 유지합니다.
+
+```bash
+cd ~/posture-coach-check
+bash scripts/install_posture_ai.sh
+```
+
+카메라를 사람의 정확한 옆쪽, 어깨 또는 눈높이에 놓고 머리·어깨·엉덩이가 모두 보이게 합니다. 바르게 앉은 상태에서 다음 명령을 실행하면 3초 후 5초 동안 개인 기준을 수집하고, 이어서 30초 동안 자세를 판정합니다.
+
+```bash
+python3 scripts/posture_coach.py --calibrate
+```
+
+기준은 `data/posture_baseline.json`, 마지막 관절·판정 화면은 `captures/posture-latest.jpg`, 지속 경고 이력은 `logs/posture-events.jsonl`에 저장됩니다. 이후에는 `--calibrate` 없이 기존 기준을 사용합니다. 계속 실행하려면 `--duration 0`, 로컬 모니터에 미리보기를 표시하려면 `--display`를 추가합니다.
+
+### 웹 대시보드
+
+Jetson에서 다음 서버를 실행하면 실시간 영상, 관절 표시, 자세 상태, 고개·상체 변화량, 나쁜 자세 지속 시간, 보정 버튼과 경고 이력을 브라우저에서 볼 수 있습니다.
+
+```bash
+cd ~/posture-coach-check
+python3 web_mvp/server.py --engine models/pose-resnet18-fp16.engine
+```
+
+같은 네트워크 또는 같은 Tailscale에 연결된 기기에서 `http://jetson-nano:8080`으로 접속합니다. 이름으로 접속되지 않으면 Jetson의 IP 주소를 사용합니다. 서버는 TensorRT GPU 엔진으로 자세를 추론하며, 기본적으로 모든 네트워크 인터페이스의 8080번 포트에서 대기합니다. 원본 영상은 파일로 저장하지 않고 브라우저에 실시간 JPEG 스트림으로 전달합니다.
+
+부팅 시 자동 실행되는 서비스로 등록하려면 한 번만 다음 명령을 실행합니다.
+
+```bash
+bash scripts/install_web_service.sh
+```
+
+웹 서버가 실행 중일 때는 카메라를 전담합니다. 카메라 단독 테스트나 명령행 자세 판정을 실행하려면 `sudo systemctl stop posture-coach-web`으로 잠시 중지하고, 완료 후 `sudo systemctl start posture-coach-web`으로 다시 시작합니다.
 
 ## 발표 자료
 

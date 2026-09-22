@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jetson Posture MVP</title>
+  <style>
+    body { margin: 0; background: #111827; color: #e5e7eb; font: 15px system-ui, sans-serif; }
+    main { max-width: 980px; margin: 24px auto; padding: 0 16px; }
+    .stage { position: relative; background: #000; line-height: 0; }
+    #video { display: block; width: 100%; height: auto; }
+    #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .bar { display: flex; gap: 18px; flex-wrap: wrap; padding: 12px 0; color: #cbd5e1; }
+    .good { color: #86efac; } .bad { color: #fca5a5; }
+    code { color: #93c5fd; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Jetson Posture MVP</h1>
+  <div class="stage">
+    <img id="video" src="/video.mjpeg" alt="Jetson camera stream">
+    <canvas id="overlay"></canvas>
+  </div>
+  <div class="bar">
+    <span>상태: <strong id="status">연결 중</strong></span>
+    <span>추론 FPS: <strong id="fps">-</strong></span>
+    <span>지연: <strong id="latency">-</strong> ms</span>
+    <span>프레임: <strong id="frame">-</strong></span>
+  </div>
+  <p>영상과 추론은 Jetson Nano에서 실행됩니다. 이 화면은 최신 결과만 표시합니다.</p>
+</main>
+<script>
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('overlay');
+  const ctx = canvas.getContext('2d');
+  const edges = [['left_ear','left_eye'],['left_eye','nose'],['nose','right_eye'],['right_eye','right_ear'],['left_ear','left_shoulder'],['right_ear','right_shoulder'],['left_shoulder','right_shoulder'],['left_shoulder','left_elbow'],['left_elbow','left_wrist'],['right_shoulder','right_elbow'],['right_elbow','right_wrist'],['left_shoulder','left_hip'],['right_shoulder','right_hip'],['left_hip','right_hip'],['left_hip','left_knee'],['left_knee','left_ankle'],['right_hip','right_knee'],['right_knee','right_ankle']];
+  function resize() { canvas.width = video.clientWidth; canvas.height = video.clientHeight; }
+  window.addEventListener('resize', resize); video.addEventListener('load', resize);
+  function draw(data) {
+    resize(); ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const points = Object.fromEntries((data.points || []).map(p => [p.name, p]));
+    const point = name => points[name] && points[name].score >= 0.15 ? points[name] : null;
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 3;
+    edges.forEach(([a,b]) => { const p=point(a), q=point(b); if (!p || !q) return; ctx.beginPath(); ctx.moveTo(p.x*canvas.width,p.y*canvas.height); ctx.lineTo(q.x*canvas.width,q.y*canvas.height); ctx.stroke(); });
+    Object.values(points).forEach(p => { if (p.score < 0.15) return; ctx.fillStyle = '#facc15'; ctx.beginPath(); ctx.arc(p.x*canvas.width,p.y*canvas.height,5,0,Math.PI*2); ctx.fill(); });
+    const status = document.getElementById('status'); status.textContent = data.status || '-'; status.className = data.status === 'person_candidate' ? 'good' : 'bad';
+    document.getElementById('fps').textContent = data.fps ?? '-'; document.getElementById('latency').textContent = data.latency_ms ?? '-'; document.getElementById('frame').textContent = data.frame_id ?? '-';
+  }
+  setInterval(() => fetch('/api/pose', {cache:'no-store'}).then(r=>r.json()).then(draw).catch(() => { document.getElementById('status').textContent='연결 실패'; }), 100);
+</script>
+</body>
+</html>

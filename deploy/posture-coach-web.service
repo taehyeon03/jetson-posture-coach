@@ -1,0 +1,16 @@
+[Unit]
+Description=Jetson Posture Coach Web Dashboard
+After=network-online.target nvargus-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jetson-nano
+WorkingDirectory=/home/jetson-nano/posture-coach-check
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/jetson-nano/posture-coach-check/scripts/nano_python.sh web_mvp/server.py --engine models/pose-resnet18-fp16.engine --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
