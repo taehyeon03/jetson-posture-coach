@@ -4,6 +4,7 @@ from src.posture import (
     Baseline,
     KeypointSmoother,
     OneEuroFilter,
+    PersonLock,
     PostureMetrics,
     SteadyMetrics,
     SustainedAlert,
@@ -124,6 +125,47 @@ class SteadyMetricsTests(unittest.TestCase):
         second = PostureMetrics("left", 0.2, 0.0, 0.9)
         steady.update(first, now=0.0)
         self.assertIs(steady.update(second, now=0.1), second)
+
+
+def face(nose_x=100, eye_x=108, eye_y=48, score=0.9):
+    return {
+        "nose": (nose_x, 50, score),
+        "left_eye": (eye_x, eye_y, score),
+        "right_eye": (0, 0, 0.0),
+    }
+
+
+class PersonLockTests(unittest.TestCase):
+    def test_first_valid_face_starts_the_lock(self):
+        lock = PersonLock()
+        self.assertTrue(lock.update(face()))
+        self.assertIsNotNone(lock.anchor)
+
+    def test_nearby_face_next_frame_keeps_matching(self):
+        lock = PersonLock()
+        lock.update(face(nose_x=100, eye_x=108))
+        self.assertTrue(lock.update(face(nose_x=103, eye_x=111)))
+
+    def test_distant_face_is_rejected_as_a_different_person(self):
+        lock = PersonLock()
+        lock.update(face(nose_x=100, eye_x=108))
+        self.assertFalse(lock.update(face(nose_x=500, eye_x=508)))
+        # rejection does not overwrite the original lock
+        self.assertEqual(lock.anchor[0], 108)
+
+    def test_no_face_this_frame_counts_as_a_miss_not_a_relock(self):
+        lock = PersonLock()
+        lock.update(face())
+        self.assertFalse(lock.update({}))
+        self.assertIsNotNone(lock.anchor)
+
+    def test_reacquires_a_new_person_after_losing_the_old_one(self):
+        lock = PersonLock(reacquire_after=2)
+        lock.update(face(nose_x=100, eye_x=108))
+        lock.update({})
+        lock.update({})
+        self.assertIsNone(lock.anchor)
+        self.assertTrue(lock.update(face(nose_x=500, eye_x=508)))
 
 
 if __name__ == "__main__":

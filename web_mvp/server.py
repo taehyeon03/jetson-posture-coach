@@ -27,6 +27,7 @@ from src.camera import CsiCamera
 from src.posture import (
     Baseline,
     KeypointSmoother,
+    PersonLock,
     SteadyMetrics,
     SustainedAlert,
     classify,
@@ -286,6 +287,7 @@ def worker(state, args):
         alert = SustainedAlert(args.hold_seconds)
         smoother = KeypointSmoother()
         steady = SteadyMetrics()
+        person_lock = PersonLock()
         calibration_phase = "idle"
         calibration_started = 0.0
         calibration_samples = []
@@ -305,26 +307,41 @@ def worker(state, args):
             started = time.monotonic()
             points = infer_tracked(frame, locked_bbox, context, device, arrays, pointers, input_i, outputs, heatmap_i)
             frame_h, frame_w = frame.shape[:2]
-            new_bbox = bbox_from_points(points, frame_w, frame_h, args.confidence)
-            if new_bbox is not None:
-                locked_bbox = new_bbox
-                lost_streak = 0
-            else:
-                lost_streak += 1
-                if lost_streak >= ROI_LOST_RESET_FRAMES:
-                    locked_bbox = None
-            point_map = {
+            point_map_raw = {
                 p["name"]: (p["x"] * frame_w, p["y"] * frame_h, p["score"])
                 for p in points
             }
-            point_map = smoother.smooth(point_map, started)
-            # Send the smoothed positions to the browser too, so the joint
-            # overlay itself stops twitching frame to frame.
-            points = [
-                {"name": name, "x": x / frame_w, "y": y / frame_h, "score": score}
-                for name, (x, y, score) in point_map.items()
-            ]
-            metrics = extract_metrics(point_map, args.confidence)
+            # Gate on eye position before trusting this frame's body at all:
+            # a bystander's face landing in the crop must not relock the ROI
+            # or feed the smoother/metrics with someone else's posture.
+            is_locked_person = person_lock.update(point_map_raw, args.confidence)
+
+            if is_locked_person:
+                new_bbox = bbox_from_points(points, frame_w, frame_h, args.confidence)
+                if new_bbox is not None:
+                    locked_bbox = new_bbox
+                    lost_streak = 0
+                else:
+                    lost_streak += 1
+                    if lost_streak >= ROI_LOST_RESET_FRAMES:
+                        locked_bbox = None
+                point_map = smoother.smooth(point_map_raw, started)
+                metrics = extract_metrics(point_map, args.confidence)
+                # Send the smoothed positions to the browser too, so the
+                # joint overlay itself stops twitching frame to frame.
+                points = [
+                    {"name": name, "x": x / frame_w, "y": y / frame_h, "score": score}
+                    for name, (x, y, score) in point_map.items()
+                ]
+            else:
+                # Wrong person (or nobody verifiable) in view this frame:
+                # drop the crop lock so the next frame searches the full
+                # frame again, and don't let this frame's points count.
+                locked_bbox = None
+                lost_streak = 0
+                point_map = point_map_raw
+                metrics = None
+
             # Bridges a keypoint (usually the hip) dropping below threshold
             # for a frame or two, instead of the display flickering to
             # NO_POSE on every transient occlusion.

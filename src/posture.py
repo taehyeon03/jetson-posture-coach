@@ -148,6 +148,72 @@ class KeypointSmoother(object):
         return smoothed
 
 
+class PersonLock(object):
+    """Keeps every frame anchored to the SAME person by gating on eye
+    position, so a bystander walking through the background cannot hijack
+    the ROI crop.
+
+    Side view usually only shows one eye clearly (the far eye is occluded
+    by the nose bridge), so the anchor is the single most-confident eye's
+    position relative to the nose -- not the interocular midpoint, which
+    needs both eyes and only works face-on. Nose-to-eye distance stands in
+    for head size as the movement-budget scale, since that is what stays
+    visible in profile.
+    """
+
+    def __init__(self, max_jump_ratio=3.0, reacquire_after=10):
+        self.max_jump_ratio = float(max_jump_ratio)
+        self.reacquire_after = int(reacquire_after)
+        self.anchor = None
+        self.lost_streak = 0
+
+    @staticmethod
+    def _anchor(points, minimum_confidence):
+        nose = points.get("nose")
+        if not _valid(nose, minimum_confidence):
+            return None
+        eyes = [points.get("left_eye"), points.get("right_eye")]
+        eyes = [p for p in eyes if _valid(p, minimum_confidence)]
+        if not eyes:
+            return None
+        eye = max(eyes, key=lambda p: p[2])
+        scale = math.hypot(eye[0] - nose[0], eye[1] - nose[1])
+        if scale < 2.0:
+            return None
+        return (eye[0], eye[1], scale)
+
+    def update(self, points, minimum_confidence=0.25):
+        """Call once per frame. Returns True if this frame's face belongs to
+        the locked person (or starts a new lock), False if it jumped to
+        someone else and the caller should treat the frame as unusable.
+        """
+        anchor = self._anchor(points, minimum_confidence)
+        if anchor is None:
+            self._miss()
+            return False
+
+        if self.anchor is None:
+            self.anchor = anchor
+            self.lost_streak = 0
+            return True
+
+        prev_x, prev_y, prev_scale = self.anchor
+        x, y, scale = anchor
+        jump = math.hypot(x - prev_x, y - prev_y)
+        if jump > self.max_jump_ratio * max(prev_scale, scale, 1.0):
+            self._miss()
+            return False
+
+        self.anchor = anchor
+        self.lost_streak = 0
+        return True
+
+    def _miss(self):
+        self.lost_streak += 1
+        if self.lost_streak >= self.reacquire_after:
+            self.anchor = None
+
+
 class SteadyMetrics(object):
     """Bridges brief single-frame confidence drops (e.g. the hip flickering
     behind a chair edge) so the classifier does not snap to NO_POSE on every
