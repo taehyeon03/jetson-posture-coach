@@ -207,18 +207,25 @@ def load_engine(engine_path):
     return runtime, engine, context, device, arrays, pointers, inputs[0], outputs, heatmap_indices[0]
 
 
-def infer(frame, context, device, arrays, pointers, input_i, outputs, heatmap_i):
+def infer(frame, context, device, arrays, pointers, input_i, outputs, heatmap_i, timing=None):
+    """Run the engine on ``frame``. If ``timing`` is a dict it receives the
+    per-stage milliseconds (pre_ms, h2d_ms, exec_ms, d2h_ms, decode_ms)."""
+    t0 = time.perf_counter()
     _, _, height, width = arrays[input_i].shape
     rgb = cv2.cvtColor(cv2.resize(frame, (width, height)), cv2.COLOR_BGR2RGB)
     mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
     std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
     tensor = ((rgb.astype(np.float32) / 255.0 - mean) / std).transpose(2, 0, 1)[None]
     arrays[input_i][...] = tensor
+    t1 = time.perf_counter()
     device.call("cuMemcpyHtoD_v2", pointers[input_i], ct.c_void_p(arrays[input_i].ctypes.data), ct.c_size_t(arrays[input_i].nbytes))
+    t2 = time.perf_counter()
     if not context.execute_v2([p.value for p in pointers]):
         raise RuntimeError("TensorRT inference failed")
+    t3 = time.perf_counter()
     for i in outputs:
         device.call("cuMemcpyDtoH_v2", ct.c_void_p(arrays[i].ctypes.data), pointers[i], ct.c_size_t(arrays[i].nbytes))
+    t4 = time.perf_counter()
     heatmaps = arrays[heatmap_i][0]
     points = []
     for name, heatmap in zip(KEYPOINTS, heatmaps):
@@ -229,6 +236,15 @@ def infer(frame, context, device, arrays, pointers, input_i, outputs, heatmap_i)
             "y": (float(y) + 0.5) / heatmap.shape[0],
             "score": float(heatmap[y, x]),
         })
+    if timing is not None:
+        t5 = time.perf_counter()
+        timing.update(
+            pre_ms=(t1 - t0) * 1000.0,
+            h2d_ms=(t2 - t1) * 1000.0,
+            exec_ms=(t3 - t2) * 1000.0,
+            d2h_ms=(t4 - t3) * 1000.0,
+            decode_ms=(t5 - t4) * 1000.0,
+        )
     return points
 
 
@@ -292,7 +308,7 @@ def body_roi_from_face(face_box, frame_w, frame_h):
     return (x0, y0, x1, y1)
 
 
-def infer_tracked(frame, roi, context, device, arrays, pointers, input_i, outputs, heatmap_i):
+def infer_tracked(frame, roi, context, device, arrays, pointers, input_i, outputs, heatmap_i, timing=None):
     """Run ``infer`` on ``roi`` (or the full frame) and map points back to
     full-frame fractions, so downstream code never needs to know a crop
     happened."""
@@ -307,7 +323,7 @@ def infer_tracked(frame, roi, context, device, arrays, pointers, input_i, output
         offset_x, offset_y = x0, y0
         crop_h, crop_w = crop.shape[:2]
 
-    raw_points = infer(crop, context, device, arrays, pointers, input_i, outputs, heatmap_i)
+    raw_points = infer(crop, context, device, arrays, pointers, input_i, outputs, heatmap_i, timing)
     if roi is None:
         return raw_points
     return [
@@ -321,7 +337,9 @@ def infer_tracked(frame, roi, context, device, arrays, pointers, input_i, output
     ]
 
 
-def worker(state, args):
+def worker(state, args, recorder=None):
+    """Capture/infer/publish loop. ``recorder`` (``src.bench.FrameRecorder``)
+    optionally receives per-frame timings and detections for benchmarking."""
     device = None
     camera = None
     camera_open = False
@@ -349,16 +367,24 @@ def worker(state, args):
         camera.__enter__()
         camera_open = True
         while state.running:
+            read_began = time.perf_counter()
             frame = camera.read()
             if frame is None:
+                if recorder is not None:
+                    recorder.camera_timeout()
                 continue
+            t_start = time.perf_counter()
             started = time.monotonic()
+            started_wall = time.time()
             frame_h, frame_w = frame.shape[:2]
+            age_ns = camera.last_age_ns
 
             # Find every face, then keep tracking whichever one is closest
             # to the last locked position (or the biggest/nearest face if
             # nobody is locked yet), and crop to just that person's body.
-            target_face = choose_face(detect_faces(frame, face_cascade), face_anchor_center)
+            faces = detect_faces(frame, face_cascade)
+            t_face = time.perf_counter()
+            target_face = choose_face(faces, face_anchor_center)
             if target_face is not None:
                 face_anchor_center = (target_face[0] + target_face[2] / 2.0, target_face[1] + target_face[3] / 2.0)
                 face_lost_streak = 0
@@ -369,7 +395,9 @@ def worker(state, args):
                     face_anchor_center = None
                     locked_bbox = None
 
-            points = infer_tracked(frame, locked_bbox, context, device, arrays, pointers, input_i, outputs, heatmap_i)
+            timing = {}
+            points = infer_tracked(frame, locked_bbox, context, device, arrays, pointers, input_i, outputs, heatmap_i, timing)
+            t_infer = time.perf_counter()
             point_map_raw = {
                 p["name"]: (p["x"] * frame_w, p["y"] * frame_h, p["score"])
                 for p in points
@@ -377,7 +405,8 @@ def worker(state, args):
             # Belt-and-suspenders sanity check even inside the face-locked
             # crop: a joint set that still doesn't line up with the locked
             # face is dropped rather than fed to the classifier.
-            if person_lock.update(point_map_raw, args.confidence):
+            lock_ok = person_lock.update(point_map_raw, args.confidence)
+            if lock_ok:
                 point_map = smoother.smooth(point_map_raw, started)
                 metrics = extract_metrics(point_map, args.confidence)
                 # Send the smoothed positions to the browser too, so the
@@ -394,6 +423,7 @@ def worker(state, args):
             # for a frame or two, instead of the display flickering to
             # NO_POSE on every transient occlusion.
             steady_metrics = steady.update(metrics, started)
+            t_track = time.perf_counter()
 
             now = time.monotonic()
             measured.append(now - previous)
@@ -465,6 +495,7 @@ def worker(state, args):
             if now < notice_until and notice_message:
                 message = notice_message
 
+            t_state = time.perf_counter()
             # Keep inference at camera resolution, but encode a smaller preview
             # so JPEG work does not become the Nano bottleneck.
             preview = cv2.resize(frame, (640, 360), interpolation=cv2.INTER_AREA)
@@ -479,6 +510,7 @@ def worker(state, args):
                 "fps": round(fps, 2),
                 "latency_ms": round(latency_ms, 2),
                 "updated_at": time.time(),
+                "captured_at": started_wall - (0.0 if age_ns is None else age_ns / 1e9),
                 "calibrated": baseline is not None,
                 "calibration_phase": calibration_phase,
                 "calibration_remaining": round(calibration_remaining, 1),
@@ -494,7 +526,35 @@ def worker(state, args):
                 "hold_seconds": args.hold_seconds,
             }
             state.publish(encoded.tobytes(), pose)
+            if recorder is not None:
+                t_end = time.perf_counter()
+                total_ms = (t_end - t_start) * 1000.0
+                record = {
+                    "t": started,
+                    "capture_wait_ms": (t_start - read_began) * 1000.0,
+                    "age_ms": None if age_ns is None else age_ns / 1e6,
+                    "face_ms": (t_face - t_start) * 1000.0,
+                    "infer_ms": (t_infer - t_face) * 1000.0,
+                    "track_ms": (t_track - t_infer) * 1000.0,
+                    "state_ms": (t_state - t_track) * 1000.0,
+                    "encode_ms": (t_end - t_state) * 1000.0,
+                    "total_ms": total_ms,
+                    "e2e_ms": None if age_ns is None else age_ns / 1e6 + total_ms,
+                    "pts_ns": camera.last_pts_ns,
+                    "face_found": target_face is not None,
+                    "pose_valid": metrics is not None,
+                    "lock_ok": lock_ok,
+                    "state": posture_state,
+                    "head_forward": None if steady_metrics is None else steady_metrics.head_forward,
+                    "torso_forward": None if steady_metrics is None else steady_metrics.torso_forward,
+                }
+                record.update(timing)
+                recorder.frame(record, point_map_raw, point_map)
+                if recorder.frames and len(recorder.frames) % 30 == 1:
+                    recorder.probe_gpu_memory()
     except Exception as error:
+        if recorder is not None:
+            recorder.error(error)
         with state.condition:
             state.pose.update({
                 "state": "OFFLINE",
@@ -536,6 +596,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path in ("/api/pose", "/api/status"):
             frame_id, _, pose = self.state.snapshot()
             pose["frame_id"] = frame_id
+            pose["server_time"] = time.time()
             self.send_bytes(json.dumps(pose).encode("utf-8"), "application/json; charset=utf-8")
         elif path in ("/api/health", "/healthz"):
             frame_id, jpeg, pose = self.state.snapshot()

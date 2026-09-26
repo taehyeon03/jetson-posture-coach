@@ -28,6 +28,10 @@ class CsiCamera:
         )
         self._pipeline = Gst.parse_launch(pipeline_str)
         self._sink = self._pipeline.get_by_name("sink")
+        # Best-effort capture timing of the last frame, for benchmarking:
+        # buffer PTS and how old it was (pipeline running time - PTS) when read.
+        self.last_pts_ns = None
+        self.last_age_ns = None
 
     def __enter__(self):
         self._pipeline.set_state(Gst.State.PLAYING)
@@ -42,6 +46,7 @@ class CsiCamera:
         if sample is None:
             return None
         buf = sample.get_buffer()
+        self._note_timing(buf)
         caps = sample.get_caps().get_structure(0)
         h = caps.get_value("height")
         w = caps.get_value("width")
@@ -53,3 +58,17 @@ class CsiCamera:
         finally:
             buf.unmap(mapinfo)
         return frame
+
+    def _note_timing(self, buf):
+        self.last_pts_ns = None
+        self.last_age_ns = None
+        if buf.pts == Gst.CLOCK_TIME_NONE:
+            return
+        self.last_pts_ns = buf.pts
+        clock = self._pipeline.get_clock()
+        if clock is None:
+            return
+        age = clock.get_time() - self._pipeline.get_base_time() - buf.pts
+        # A PTS that is not on the pipeline clock gives nonsense; drop it.
+        if 0 <= age < 5 * Gst.SECOND:
+            self.last_age_ns = age

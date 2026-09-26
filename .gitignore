@@ -18,6 +18,10 @@ logs/
 models/
 *.log
 
+# Frame-level benchmark logs (aggregate summary.json/config.json are committed)
+benchmarks/runs/*/frames.csv
+benchmarks/runs/*/system.csv
+
 # Temporary presentation review artifacts
 contents_review.png
 slide_review.jpg
