@@ -1,0 +1,11 @@
+{
+  "args": {
+    "command": "rtt",
+    "duration": 30.0,
+    "label": "cac5g-rtt",
+    "rate": 20.0,
+    "url": "http://jetson-nano:8080"
+  },
+  "date": "2026-09-28T00:19:43+0900",
+  "run_id": "20260928-001943-cac5g-rtt-rtt"
+}

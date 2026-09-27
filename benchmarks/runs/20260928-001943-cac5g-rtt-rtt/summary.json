@@ -1,0 +1,38 @@
+{
+  "capture_to_client_first_seen_ms": {
+    "count": 105,
+    "max": 1848.234,
+    "mean": 310.893,
+    "min": 222.98,
+    "p50": 298.972,
+    "p95": 354.767,
+    "p99": 378.549,
+    "std": 154.18
+  },
+  "clock_offset_ms": 4.59,
+  "errors": 0,
+  "http_rtt_ms": {
+    "count": 591,
+    "max": 457.796,
+    "mean": 15.643,
+    "min": 7.036,
+    "p50": 11.964,
+    "p95": 26.937,
+    "p99": 31.992,
+    "std": 19.267
+  },
+  "note": "http_rtt_ms = request->response. result_age_ms = camera capture -> client received, sampled every poll (includes waiting for the next frame). first_seen_ms only counts each frame's first poll, so it is bounded below by the poll interval. Server/client clocks aligned by request midpoint (+/- RTT/2).",
+  "polls": 591,
+  "result_age_ms": {
+    "count": 494,
+    "max": 2045.5,
+    "mean": 407.11,
+    "min": 222.98,
+    "p50": 387.18,
+    "p95": 530.472,
+    "p99": 698.446,
+    "std": 174.571
+  },
+  "server_fps_observed": 3.5,
+  "url": "http://jetson-nano:8080/api/pose"
+}

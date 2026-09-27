@@ -1,0 +1,8 @@
+run_id,label,fps_mean,latency_p50_ms,latency_p95_ms,latency_p99_ms,latency_std_ms,face_detect_rate,pose_valid_rate,rss_peak_mb,gpu_mem_delta_mb,power_mean_mw,energy_per_inference_mj,temp_max_c,deadline_miss_rate,p95_change_pct
+20260928-000954-cac5g-tts-model-model,cac5g-tts-model,13.101,76.093,78.304,79.936,1.343,,,1406.9,875.2,,,48.5,0.0,2.27
+20260928-001138-cac5g-tts-hands-on-thighs,cac5g-tts-hands-on-thighs,3.575,301.555,319.504,324.427,10.682,0.0465,0.6512,1478.1,946.5,,,48.0,1.0,1.65
+20260928-001336-cac5g-tts-hands-raised,cac5g-tts-hands-raised,3.577,302.612,316.846,321.958,10.457,0.014,0.8605,1477.0,949.6,,,48.0,1.0,-0.87
+20260928-001529-cac5g-tts-backrest-leaning,cac5g-tts-backrest-leaning,3.543,302.905,319.421,323.73,10.781,0.216,0.8545,1475.1,964.7,,,48.0,1.0,-1.98
+20260928-001728-cac5g-tts-backrest-clear,cac5g-tts-backrest-clear,3.527,305.022,322.114,328.016,11.101,0.2783,0.2877,1477.6,956.7,,,48.0,1.0,-0.66
+20260928-001911-cac5g-rtt-server,cac5g-rtt-server,4.06,269.551,306.348,320.216,22.766,0.0055,0.0,1479.7,955.8,,,48.0,1.0,7.09
+20260928-002044-cac5g-tts-hands-thighs-backrest,cac5g-tts-hands-thighs-backrest,3.56,302.534,320.392,328.214,11.257,0.0,1.0,1473.5,950.2,,,48.0,1.0,-2.45
