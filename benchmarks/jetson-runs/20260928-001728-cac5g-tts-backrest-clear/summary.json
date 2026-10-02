@@ -1,0 +1,314 @@
+{
+  "drift": {
+    "first_fps": 3.577,
+    "first_p95_ms": 321.274,
+    "fps_change_pct": -2.33,
+    "last_fps": 3.494,
+    "last_p95_ms": 319.168,
+    "latency_metric": "e2e_ms",
+    "p95_change_pct": -0.66,
+    "window_s": 12.0
+  },
+  "energy": {
+    "available": false,
+    "note": "no power source (tegrastats or INA3221 sysfs) on this machine"
+  },
+  "latency_ms": {
+    "age_ms": {
+      "count": 212,
+      "max": 43.987,
+      "mean": 24.276,
+      "min": 7.606,
+      "p50": 24.992,
+      "p95": 39.436,
+      "p99": 42.598,
+      "std": 9.951
+    },
+    "capture_wait_ms": {
+      "count": 212,
+      "max": 8.084,
+      "mean": 3.109,
+      "min": 2.379,
+      "p50": 2.912,
+      "p95": 4.277,
+      "p99": 6.835,
+      "std": 0.811
+    },
+    "d2h_ms": {
+      "count": 212,
+      "max": 3.045,
+      "mean": 0.89,
+      "min": 0.672,
+      "p50": 0.821,
+      "p95": 1.214,
+      "p99": 2.366,
+      "std": 0.276
+    },
+    "decode_ms": {
+      "count": 212,
+      "max": 4.13,
+      "mean": 0.694,
+      "min": 0.494,
+      "p50": 0.617,
+      "p95": 0.904,
+      "p99": 3.182,
+      "std": 0.403
+    },
+    "e2e_ms": {
+      "count": 212,
+      "max": 331.938,
+      "mean": 304.425,
+      "min": 277.507,
+      "p50": 305.022,
+      "p95": 322.114,
+      "p99": 328.016,
+      "std": 11.101
+    },
+    "encode_ms": {
+      "count": 212,
+      "max": 9.627,
+      "mean": 5.792,
+      "min": 5.025,
+      "p50": 5.716,
+      "p95": 6.684,
+      "p99": 7.958,
+      "std": 0.606
+    },
+    "exec_ms": {
+      "count": 212,
+      "max": 63.811,
+      "mean": 60.435,
+      "min": 59.224,
+      "p50": 60.235,
+      "p95": 62.038,
+      "p99": 62.872,
+      "std": 0.663
+    },
+    "face_ms": {
+      "count": 212,
+      "max": 218.77,
+      "mean": 204.779,
+      "min": 189.426,
+      "p50": 204.723,
+      "p95": 213.61,
+      "p99": 216.328,
+      "std": 5.855
+    },
+    "h2d_ms": {
+      "count": 212,
+      "max": 3.571,
+      "mean": 0.524,
+      "min": 0.44,
+      "p50": 0.483,
+      "p95": 0.614,
+      "p99": 1.13,
+      "std": 0.236
+    },
+    "infer_ms": {
+      "count": 212,
+      "max": 74.581,
+      "mean": 68.881,
+      "min": 67.539,
+      "p50": 68.436,
+      "p95": 71.343,
+      "p99": 73.702,
+      "std": 1.26
+    },
+    "pre_ms": {
+      "count": 212,
+      "max": 13.153,
+      "mean": 6.212,
+      "min": 5.698,
+      "p50": 5.96,
+      "p95": 7.627,
+      "p99": 10.921,
+      "std": 0.929
+    },
+    "state_ms": {
+      "count": 212,
+      "max": 0.512,
+      "mean": 0.107,
+      "min": 0.054,
+      "p50": 0.109,
+      "p95": 0.15,
+      "p99": 0.261,
+      "std": 0.049
+    },
+    "total_ms": {
+      "count": 212,
+      "max": 296.407,
+      "mean": 280.149,
+      "min": 264.986,
+      "p50": 279.889,
+      "p95": 288.67,
+      "p99": 290.612,
+      "std": 5.93
+    },
+    "track_ms": {
+      "count": 212,
+      "max": 1.229,
+      "mean": 0.591,
+      "min": 0.434,
+      "p50": 0.575,
+      "p95": 0.729,
+      "p99": 0.958,
+      "std": 0.094
+    }
+  },
+  "memory": {
+    "engine_file_mb": 69.84,
+    "gpu_mem_baseline_mb": 2731.9375,
+    "gpu_mem_delta_mb": 956.7,
+    "gpu_mem_used_peak_mb": 3688.6,
+    "rss_growth_mb_per_min": -0.939,
+    "rss_peak_mb": 1477.6,
+    "rss_peak_sampled_mb": 1475.8,
+    "swap_growth_mb": -0.0,
+    "swap_peak_mb": 174.8,
+    "system_ram_peak_mb": 2963.9
+  },
+  "mode": "run",
+  "power_source": null,
+  "recognition": {
+    "face_detect_rate": 0.2783,
+    "frames": 212,
+    "joints": {
+      "left_ankle": {
+        "mean_score": 0.006,
+        "visible_rate": 0.0
+      },
+      "left_ear": {
+        "mean_score": 0.708,
+        "visible_rate": 1.0
+      },
+      "left_elbow": {
+        "mean_score": 0.498,
+        "visible_rate": 1.0
+      },
+      "left_eye": {
+        "mean_score": 0.738,
+        "visible_rate": 1.0
+      },
+      "left_hip": {
+        "mean_score": 0.251,
+        "visible_rate": 0.2877
+      },
+      "left_knee": {
+        "mean_score": 0.441,
+        "visible_rate": 0.9623
+      },
+      "left_shoulder": {
+        "mean_score": 0.515,
+        "visible_rate": 1.0
+      },
+      "left_wrist": {
+        "mean_score": 0.467,
+        "visible_rate": 1.0
+      },
+      "neck": {
+        "mean_score": 0.469,
+        "visible_rate": 1.0
+      },
+      "nose": {
+        "mean_score": 0.711,
+        "visible_rate": 1.0
+      },
+      "right_ankle": {
+        "mean_score": 0.007,
+        "visible_rate": 0.0
+      },
+      "right_ear": {
+        "mean_score": 0.013,
+        "visible_rate": 0.0
+      },
+      "right_elbow": {
+        "mean_score": 0.085,
+        "visible_rate": 0.0
+      },
+      "right_eye": {
+        "mean_score": 0.08,
+        "visible_rate": 0.0
+      },
+      "right_hip": {
+        "mean_score": 0.24,
+        "visible_rate": 0.4198
+      },
+      "right_knee": {
+        "mean_score": 0.225,
+        "visible_rate": 0.5142
+      },
+      "right_shoulder": {
+        "mean_score": 0.335,
+        "visible_rate": 0.9858
+      },
+      "right_wrist": {
+        "mean_score": 0.068,
+        "visible_rate": 0.0
+      }
+    },
+    "person_lock_rate": 1.0,
+    "pose_valid_rate": 0.2877,
+    "state_distribution": {
+      "HEAD_AND_TORSO_FORWARD": 0.3349,
+      "NO_POSE": 0.6651
+    }
+  },
+  "reliability": {
+    "camera_frames_skipped": 1583,
+    "camera_frames_skipped_ratio": 0.8819,
+    "camera_timeouts": 0,
+    "crashed": false,
+    "deadline_metric": "e2e_ms",
+    "deadline_miss_rate": 1.0,
+    "deadline_ms": 200.0,
+    "errors": [],
+    "samples_over_temp_limit": 0,
+    "skip_note": "latest-frame policy drops camera frames by design; gaps are not errors",
+    "temp_limit_c": 80.0,
+    "temp_max_c": 48.0
+  },
+  "stability": {
+    "head_forward_std": 0.0103,
+    "jitter_reduction_pct": 7.3,
+    "keypoint_jitter_raw_px": 2.475,
+    "keypoint_jitter_smoothed_px": 2.294,
+    "latency_cv": 0.0365,
+    "latency_metric": "e2e_ms",
+    "latency_p99_minus_p50_ms": 22.994,
+    "latency_std_ms": 11.101,
+    "state_flips": 11,
+    "state_flips_per_min": 11.03,
+    "torso_forward_std": 0.001
+  },
+  "targets": [
+    {
+      "id": "SYS-LAT-01",
+      "metric": "latency p95 (ms)",
+      "pass": false,
+      "target": "<= 200.0",
+      "value": 322.114
+    },
+    {
+      "id": "SYS-THR-01",
+      "metric": "FPS",
+      "pass": false,
+      "target": ">= 5.0",
+      "value": 3.527
+    },
+    {
+      "id": "SYS-MEM-01",
+      "metric": "RSS peak (MB)",
+      "pass": true,
+      "target": "<= 3500.0",
+      "value": 1477.6
+    }
+  ],
+  "throughput": {
+    "duration_s": 60.1,
+    "fps_mean": 3.527,
+    "fps_window_max": 3.6,
+    "fps_window_min": 3.4,
+    "frames": 212,
+    "inference_rate_per_s": 14.52
+  }
+}
