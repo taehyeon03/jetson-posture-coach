@@ -47,5 +47,6 @@
 ## 관련 문서
 
 - [피드백 반영 개발 계획](feedback_development_plan.md)
+- [판정 안정성·처리 속도 고도화 계획](improvement_plan.md)
 - [시스템 검증 계획](system_validation_plan.md)
 - [남은 작업](../TODO.md)
